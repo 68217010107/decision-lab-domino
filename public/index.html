@@ -1,0 +1,52 @@
+<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Decision Lab • ผลกระทบโดมิโน</title>
+<script src="/socket.io/socket.io.js"></script><script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,"Noto Sans Thai",sans-serif;background:linear-gradient(135deg,#f3f5ff,#f8fbff);color:#172033}.wrap{max-width:1100px;margin:auto;padding:16px}.card{background:#fff;border-radius:24px;padding:22px;margin:14px 0;box-shadow:0 12px 34px #17203312}h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#667085;line-height:1.7}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.btn{border:0;border-radius:14px;padding:13px 18px;font:inherit;font-weight:800;cursor:pointer}.primary{background:#172033;color:#fff}.soft{background:#e9edf5}.input,.textarea{width:100%;padding:13px;border:2px solid #dfe4ed;border-radius:13px;font:inherit}.textarea{min-height:120px}.hidden{display:none}.code{font-size:44px;font-weight:900;letter-spacing:7px;background:#eef0ff;border-radius:16px;padding:10px 18px;display:inline-block}.qr{display:flex;gap:22px;align-items:center;flex-wrap:wrap}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.stat{background:#f7f8fb;padding:12px;border-radius:14px;text-align:center}.stat b{display:block;font-size:28px}.choice{width:100%;text-align:left;padding:15px;border:2px solid #dfe4ed;background:#fff;border-radius:14px;font:inherit;cursor:pointer}.choice.selected{border-color:#5965ff;background:#f0f2ff}.response{padding:13px;border-bottom:1px solid #e5e8ef}.chain{display:flex;gap:8px;overflow:auto}.tile{min-width:145px;padding:14px;background:#f0f2f7;border-radius:14px;text-align:center;font-weight:800}.notice{background:#f4f6ff;padding:14px;border-radius:14px}@media(max-width:700px){.grid,.stats{grid-template-columns:1fr}.wrap{padding:10px}.card{padding:17px}}
+</style></head><body><div class="wrap">
+<section class="card"><h1>🁢 เกมผลกระทบโดมิโน</h1><p class="muted"><b>Decision → Impact → Consequence → Reflection → Learning</b><br>สำหรับกิจกรรมการตัดสินใจและการแก้ปัญหา • ใช้โทรศัพท์ได้ • เล่นข้าม Wi‑Fi ได้เมื่อเว็บไซต์ถูกนำขึ้นออนไลน์</p></section>
+
+<section id="home" class="card"><div class="grid">
+<div><h2>👨‍🏫 อาจารย์</h2><input id="hostName" class="input" placeholder="ชื่อผู้ดำเนินกิจกรรม"><br><br><button class="btn primary" onclick="createRoom()">สร้างห้อง</button></div>
+<div><h2>📱 นักศึกษา</h2><input id="roomInput" class="input" placeholder="รหัสห้อง"><br><br><input id="studentName" class="input" placeholder="ชื่อของคุณ"><br><br><button class="btn primary" onclick="joinRoom()">เข้าร่วมเกม</button></div>
+</div><p id="msg" class="muted"></p></section>
+
+<section id="host" class="hidden">
+<div class="card"><h2>👨‍🏫 ห้องอาจารย์</h2><div class="qr"><div id="qrcode"></div><div><p>ให้นักศึกษาสแกน QR นี้</p><div class="code" id="roomCode"></div><p class="muted">หรือใช้รหัสห้องด้านบน</p><button class="btn primary" onclick="startRound()">▶ เริ่มสถานการณ์</button> <button class="btn soft" onclick="nextRound()">สถานการณ์ถัดไป →</button></div></div></div>
+<div class="card"><div class="stats"><div class="stat">ผู้เข้าร่วม<b id="people">0</b></div><div class="stat">ตอบแล้ว<b id="answers">0</b></div><div class="stat">สถานการณ์<b id="round">1/6</b></div></div></div>
+<div class="card"><h2 id="hostTitle">รอเริ่มกิจกรรม</h2><p id="hostPrompt" class="muted"></p><h3>📝 คำตอบนักศึกษาแบบ Real-time</h3><div id="responses">ยังไม่มีคำตอบ</div></div>
+</section>
+
+<section id="student" class="hidden">
+<div class="card"><p class="muted" id="sRound"></p><h2 id="sTitle"></h2><p id="sPrompt" class="muted"></p><div id="choices" class="grid"></div>
+<h3>💭 เหตุผล</h3><textarea id="answer" class="textarea" placeholder="ทำไมคุณจึงเลือกแนวทางนี้ และคาดว่าจะเกิดผลกระทบอะไรต่อไป"></textarea>
+<h3>🔄 ถ้าเห็นผลกระทบแล้วจะตัดสินใจใหม่หรือไม่?</h3><textarea id="reflection" class="textarea" placeholder="Reflection สั้น ๆ"></textarea><br><br>
+<button id="send" class="btn primary" onclick="sendAnswer()" disabled>📨 ส่งคำตอบ</button><p id="studentMsg" class="muted"></p></div>
+<div id="studentChain" class="card hidden"><h2>🁢 ผลกระทบโดมิโน</h2><div class="chain"><div class="tile">การตัดสินใจ</div><div>→</div><div class="tile">ผลทันที</div><div>→</div><div class="tile">ผลกระทบต่อเนื่อง</div><div>→</div><div class="tile">การเรียนรู้</div></div></div>
+</section>
+
+<section id="finish" class="card hidden"><h2>🎯 สรุปกิจกรรม</h2><p class="muted">ไม่มีคำตอบที่ถูกหรือผิด แต่ <b>ผลลัพธ์เป็นตัวตัดสิน</b></p><h3>“ผู้บริหารที่ดีไม่จำเป็นต้องตัดสินใจถูกทุกครั้ง แต่ต้องมองเห็นผลกระทบ ประเมินผล และเรียนรู้เพื่อทำให้การตัดสินใจครั้งต่อไปดีขึ้น”</h3></section>
+</div>
+<script>
+const socket=io();let room="",host=false,current=0,selected=null,scenarios=[];
+const $=id=>document.getElementById(id);
+function show(id){["home","host","student","finish"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
+function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+function createRoom(){host=true;socket.emit("createRoom",{name:$("hostName").value})}
+function joinRoom(){room=$("roomInput").value.trim().toUpperCase();if(!room||!$("studentName").value.trim())return alert("กรุณากรอกรหัสห้องและชื่อ");socket.emit("joinRoom",{room,name:$("studentName").value})}
+socket.on("roomCreated",d=>{room=d.room;scenarios=d.scenarios;$("roomCode").textContent=room;const url=location.origin+"/?room="+room;new QRCode($("qrcode"),{text:url,width:190,height:190});history.replaceState({},'',"/?room="+room);show("host")})
+socket.on("joined",d=>{room=d.room;current=d.scenario;renderStudent(d.data,d.started);show("student")})
+socket.on("roundStarted",d=>{current=d.scenario;if(host)renderHost(d.data);else renderStudent(d.data,true)})
+socket.on("roomUpdate",d=>{if(host){$("people").textContent=d.count;$("answers").textContent=d.responses.length}})
+socket.on("newResponse",r=>{if(host)addResponse(r)})
+socket.on("gameFinished",()=>show("finish"))
+socket.on("errorMessage",m=>alert(m))
+function startRound(){socket.emit("startRound",{room})}
+function nextRound(){socket.emit("nextRound",{room})}
+function renderHost(d){$("hostTitle").textContent=d.title;$("hostPrompt").textContent=d.prompt;$("round").textContent=(current+1)+"/6"}
+function addResponse(r){const box=$("responses");if(box.textContent==="ยังไม่มีคำตอบ")box.innerHTML="";const el=document.createElement("div");el.className="response";el.innerHTML="<b>"+esc(r.name)+"</b><br><b>แนวทาง:</b> "+esc((scenarios[current]?.choices||[])[r.choice]||"")+"<br><b>เหตุผล:</b> "+esc(r.answer)+"<br><b>Reflection:</b> "+esc(r.reflection||"-");box.prepend(el)}
+function renderStudent(d,started){selected=null;$("sRound").textContent="สถานการณ์ "+(current+1)+" / 6";$("sTitle").textContent=d.title;$("sPrompt").textContent=d.prompt;$("answer").value="";$("reflection").value="";$("studentMsg").textContent=started?"เริ่มตอบได้เลย":"รออาจารย์เริ่มสถานการณ์";$("send").disabled=true;$("studentChain").classList.add("hidden");$("choices").innerHTML=d.choices.map((c,i)=>`<button class="choice" onclick="selectChoice(${i},this)">${String.fromCharCode(65+i)} • ${esc(c)}</button>`).join("")}
+function selectChoice(i,el){selected=i;document.querySelectorAll(".choice").forEach(x=>x.classList.remove("selected"));el.classList.add("selected");$("send").disabled=false;$("studentMsg").textContent="เลือกแล้ว • เขียนเหตุผลและ Reflection ก่อนส่ง"}
+function sendAnswer(){const a=$("answer").value.trim(),r=$("reflection").value.trim();if(selected===null)return alert("กรุณาเลือกแนวทาง");if(!a)return alert("กรุณาเขียนเหตุผล");socket.emit("submitAnswer",{room,choice:selected,answer:a,reflection:r});$("send").disabled=true;$("studentMsg").textContent="ส่งคำตอบแล้ว ✓ อาจารย์ได้รับแบบ Real-time";$("studentChain").classList.remove("hidden")}
+const qp=new URLSearchParams(location.search).get("room");if(qp){$("roomInput").value=qp.toUpperCase()}
+</script></body></html>
