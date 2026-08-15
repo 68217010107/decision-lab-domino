@@ -49,8 +49,12 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 <button class="btn soft" onclick="nextRound()">สถานการณ์ถัดไป →</button>
 <button class="btn danger" onclick="closeRoom()">⛔ ปิดห้อง</button>
 </div></div></div>
-<div class="card"><h2>🛠️ จัดการสถานการณ์</h2>
-<p class="muted">อาจารย์สามารถเพิ่มสถานการณ์ใหม่ หรือ ลบสถานการณ์ที่ไม่ต้องการใช้ได้</p>
+<div class="card"><div class="stats"><div class="stat">ผู้เข้าร่วม<b id="people">0</b></div><div class="stat">ตอบแล้ว<b id="answers">0</b></div><div class="stat">สถานการณ์<b id="round">1/6</b></div></div></div>
+<div class="card"><h2 id="hostTitle">รอเริ่มกิจกรรม</h2><p id="hostPrompt" class="muted"></p><h3>📝 คำตอบนักศึกษาแบบ Real-time</h3><div id="responses">ยังไม่มีคำตอบ</div></div>
+
+<!-- ส่วนจัดการสถานการณ์ย้ายมาไว้ด้านล่างสุด เพื่อให้อาจารย์ใช้งานหลังดูผลลัพธ์ -->
+<div class="card" id="scenarioManager"><h2>➕ เพิ่ม / 🛠️ จัดการสถานการณ์</h2>
+<p class="muted">ส่วนนี้อยู่ด้านล่างสำหรับอาจารย์ ใช้เพิ่มสถานการณ์ใหม่หรือลบสถานการณ์ที่ไม่ต้องการใช้</p>
 <div class="grid">
 <div><input id="newTitle" class="input" placeholder="ชื่อสถานการณ์"><br><br>
 <textarea id="newPrompt" class="textarea" placeholder="คำอธิบายสถานการณ์"></textarea></div>
@@ -62,8 +66,6 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 </div>
 <div id="scenarioList" class="notice" style="margin-top:16px"></div>
 </div>
-<div class="card"><div class="stats"><div class="stat">ผู้เข้าร่วม<b id="people">0</b></div><div class="stat">ตอบแล้ว<b id="answers">0</b></div><div class="stat">สถานการณ์<b id="round">1/6</b></div></div></div>
-<div class="card"><h2 id="hostTitle">รอเริ่มกิจกรรม</h2><p id="hostPrompt" class="muted"></p><h3>📝 คำตอบนักศึกษาแบบ Real-time</h3><div id="responses">ยังไม่มีคำตอบ</div></div>
 </section>
 
 <section id="student" class="hidden">
