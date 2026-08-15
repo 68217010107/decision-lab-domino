@@ -46,6 +46,7 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 <div class="card"><h2>👨‍🏫 ห้องอาจารย์</h2><div class="qr"><div id="qrcode"></div><div>
 <p>ให้นักศึกษาสแกน QR นี้</p><div class="code" id="roomCode"></div><p class="muted">หรือใช้รหัสห้อง</p>
 <button class="btn primary" onclick="startRound()">▶ เริ่มสถานการณ์</button>
+<button class="btn soft" onclick="previousRound()">← สถานการณ์ก่อนหน้า</button>
 <button class="btn soft" onclick="nextRound()">สถานการณ์ถัดไป →</button>
 <button class="btn danger" onclick="closeRoom()">⛔ ปิดห้อง</button>
 </div></div></div>
@@ -75,7 +76,8 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 <textarea id="answer" class="textarea" placeholder="ทำไมคุณจึงเลือกแนวทางนี้ และคาดว่าจะเกิดผลกระทบอะไรต่อไป"></textarea>
 <h3>🔄 Reflection</h3><textarea id="reflection" class="textarea" placeholder="ถ้าเห็นผลกระทบแล้ว คุณจะตัดสินใจใหม่หรือไม่ เพราะอะไร"></textarea><br><br>
 <button id="send" class="btn primary" onclick="sendAnswer()" disabled>📨 ส่งคำตอบ</button>
-<p id="studentMsg" class="muted"></p></div>
+<p id="studentMsg" class="muted"></p>
+<div id="ownAnswerBox" class="notice hidden"></div></div>
 <div id="studentChain" class="card hidden"><h2>🁢 ผลกระทบโดมิโน</h2><div class="chain"><div class="tile">การตัดสินใจ</div><div>→</div><div class="tile">ผลทันที</div><div>→</div><div class="tile">ผลกระทบต่อเนื่อง</div><div>→</div><div class="tile">การเรียนรู้</div></div></div>
 </section>
 
@@ -149,24 +151,46 @@ function connect(){
   });
 
   socket.on("joined",d=>{
-    room=d.room; current=d.scenario||0; scenarios=d.scenarios||[]; hostSummary=d.summary||hostSummary; renderStudent(d.data,d.started); show("student");
+    room=d.room; current=d.scenario||0; scenarios=d.scenarios||[]; hostSummary=d.summary||hostSummary; renderStudent(d.data,d.started); show("student"); applyOwnAnswer(d.existingAnswer||null);
   });
 
   socket.on("roundStarted",d=>{
     current=d.scenario;
-    if(host) renderHost(d.data); else renderStudent(d.data,true);
+    if(host) { renderHost(d.data); } else { renderStudent(d.data,true); }
   });
 
   socket.on("roomUpdate",d=>{
     if(host){
+      current = Number(d.scenario || 0);
+      if(Array.isArray(d.scenarios) && d.scenarios.length){
+        scenarios = d.scenarios;
+      }
+      currentResponses = Array.isArray(d.responses) ? d.responses : [];
       $("people").textContent=d.count;
-      $("answers").textContent=d.responses.length;
-      $("round").textContent=(d.scenario+1)+"/"+scenarios.length;
+      $("answers").textContent=currentResponses.length;
+      $("round").textContent=(current+1)+"/"+scenarios.length;
+      // อัปเดตคำตอบและสถิติทันทีโดยไม่ต้องรีเฟรชหน้า
+      renderResponseGroups(currentResponses);
     }
   });
 
-  socket.on("newResponse",r=>{if(host)addResponse(r)});
-  socket.on("answerSaved",()=>{$("studentMsg").textContent="ส่งคำตอบแล้ว ✓ อาจารย์ได้รับแบบ Real-time";});
+  socket.on("responseReceived",r=>{
+    if(!host) return;
+    // แสดงคำตอบทันทีเมื่อมีนักศึกษาส่งเข้ามา
+    const exists=currentResponses.some(x=>x.id===r.id && Number(x.scenario)===Number(r.scenario));
+    if(!exists) currentResponses.push(r);
+    renderResponseGroups(currentResponses);
+    $("answers").textContent=currentResponses.length;
+  });
+  socket.on("answerSaved",(d)=>{
+    $("studentMsg").textContent="ส่งคำตอบแล้ว ✓ อาจารย์ได้รับแบบ Real-time";
+    applyOwnAnswer(d?.item||null);
+  });
+  socket.on("answerAlreadySaved",(item)=>{
+    applyOwnAnswer(item);
+    $("studentMsg").textContent="สถานการณ์นี้คุณส่งคำตอบไปแล้ว 1 ครั้ง";
+  });
+  socket.on("ownAnswer",(item)=>applyOwnAnswer(item));
   socket.on("scenariosUpdated",d=>{ scenarios=d.scenarios||[]; current=d.scenario||0; renderScenarioList(); $("round").textContent=(current+1)+"/"+scenarios.length; });
   socket.on("summaryUpdated",d=>{ hostSummary=d.summary||hostSummary; $("summaryText").value=hostSummary; $("summaryMsg").textContent="บันทึกแล้ว ✓"; if(!host) $("finishSummary").textContent=hostSummary; });
   socket.on("gameFinished",d=>{ if(d?.summary) hostSummary=d.summary; $("finishSummary").textContent=hostSummary; show("finish"); });
@@ -200,6 +224,11 @@ function startRound(){
   if(!connected)return alert("Server ยังไม่พร้อม");
   if(!room||!hostToken)return alert("ไม่พบสิทธิ์อาจารย์ กรุณาสร้างห้องใหม่");
   socket.emit("startRound",{room,hostToken});
+}
+function previousRound(){
+  if(!connected)return alert("Server ยังไม่พร้อม");
+  if(!room||!hostToken)return alert("ไม่พบสิทธิ์อาจารย์ กรุณาสร้างห้องใหม่");
+  socket.emit("previousRound",{room,hostToken});
 }
 function nextRound(){
   if(!connected)return alert("Server ยังไม่พร้อม");
@@ -248,6 +277,7 @@ function renderAnswerStats(stats){
 
 function renderResponseGroups(responses){
   const box=$("responses");
+  if(!box) return;
   const sc=scenarios[current]||{choices:[]};
   const choices=sc.choices||[];
   const total=responses.length;
@@ -273,6 +303,8 @@ function renderStudent(d,started){
   $("answer").value="";$("reflection").value="";
   $("studentMsg").textContent=started?"เริ่มตอบได้เลย":"รออาจารย์เริ่มสถานการณ์";
   $("send").disabled=true;$("studentChain").classList.add("hidden");
+  $("ownAnswerBox").classList.add("hidden");
+  $("ownAnswerBox").innerHTML="";
   $("choices").innerHTML=(d.choices||[]).map((c,i)=>`<button class="choice" onclick="selectChoice(${i},this)">${String.fromCharCode(65+i)} • ${esc(c)}</button>`).join("");
 }
 
@@ -289,6 +321,20 @@ function sendAnswer(){
   if(!a)return alert("กรุณาเขียนเหตุผล");
   socket.emit("submitAnswer",{room,choice:selected,answer:a,reflection:r});
   $("send").disabled=true;$("studentChain").classList.remove("hidden");
+}
+
+function applyOwnAnswer(item){
+  const box=$("ownAnswerBox");
+  if(!item){ box.classList.add("hidden"); return; }
+  const sc=scenarios[current]||{choices:[]};
+  selected=Number(item.choice);
+  document.querySelectorAll(".choice").forEach((el,i)=>el.classList.toggle("selected",i===selected));
+  $("answer").value=item.answer||"";
+  $("reflection").value=item.reflection||"";
+  $("send").disabled=true;
+  box.classList.remove("hidden");
+  box.innerHTML="<b>✓ คุณตอบสถานการณ์นี้แล้ว</b><br>คำตอบ: "+esc(sc.choices[selected]||("ข้อ "+(selected+1)))+"<br><span class='muted'>นักศึกษา 1 คนตอบได้ 1 คำตอบต่อ 1 สถานการณ์</span>";
+  $("studentChain").classList.remove("hidden");
 }
 
 const qp=new URLSearchParams(location.search).get("room");

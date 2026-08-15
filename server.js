@@ -59,7 +59,7 @@ function makeRoomCode() {
 
 function roomSnapshot(r) {
   const currentScenario = r.scenarios[r.scenario] || {choices: []};
-  const responses = [...r.responses.values()];
+  const responses = [...r.responses.values()].filter(x => Number(x.scenario) === Number(r.scenario));
   const counts = currentScenario.choices.map((_, i) => responses.filter(x => Number(x.choice) === i).length);
   const total = responses.length;
   const choiceStats = counts.map((count, i) => ({
@@ -155,7 +155,8 @@ io.on("connection", (socket) => {
       started: r.started,
       scenarios: r.scenarios,
       data: r.scenarios[r.scenario],
-      summary: r.summary
+      summary: r.summary,
+      existingAnswer: [...r.responses.values()].find(x => x.id === socket.id && Number(x.scenario) === Number(r.scenario)) || null
     });
     emitRoom(room, "roomUpdate", roomSnapshot(r));
   });
@@ -168,10 +169,29 @@ io.on("connection", (socket) => {
     socket.data.role = "host";
     socket.data.room = String(room || "").toUpperCase();
     socket.data.hostToken = hostToken;
-    r.responses.clear();
     r.started = true;
-    emitRoom(room, "roundStarted", { scenario: r.scenario, data: r.scenarios[r.scenario] });
+    emitRoom(room, "roundStarted", { scenario: r.scenario, data: r.scenarios[r.scenario], roomState: roomSnapshot(r) });
     emitRoom(room, "roomUpdate", roomSnapshot(r));
+    for (const [sid] of r.students) {
+      io.to(sid).emit("ownAnswer", r.responses.get(`${sid}:${r.scenario}`) || null);
+    }
+  });
+
+  socket.on("previousRound", ({ room, hostToken }) => {
+    const r = rooms.get(String(room || "").toUpperCase());
+    if (!isHost(r, hostToken)) return socket.emit("serverError", "ไม่มีสิทธิ์ย้อนสถานการณ์");
+    r.host = socket.id;
+    socket.data.role = "host";
+    socket.data.room = String(room || "").toUpperCase();
+    socket.data.hostToken = hostToken;
+    if (r.scenario <= 0) return socket.emit("serverError", "อยู่สถานการณ์แรกแล้ว");
+    r.scenario -= 1;
+    r.started = true;
+    emitRoom(room, "roundStarted", { scenario: r.scenario, data: r.scenarios[r.scenario], roomState: roomSnapshot(r) });
+    emitRoom(room, "roomUpdate", roomSnapshot(r));
+    for (const [sid] of r.students) {
+      io.to(sid).emit("ownAnswer", r.responses.get(`${sid}:${r.scenario}`) || null);
+    }
   });
 
   socket.on("nextRound", ({ room, hostToken }) => {
@@ -189,10 +209,12 @@ io.on("connection", (socket) => {
       return;
     }
     r.scenario += 1;
-    r.responses.clear();
     r.started = true;
-    emitRoom(room, "roundStarted", { scenario: r.scenario, data: r.scenarios[r.scenario] });
+    emitRoom(room, "roundStarted", { scenario: r.scenario, data: r.scenarios[r.scenario], roomState: roomSnapshot(r) });
     emitRoom(room, "roomUpdate", roomSnapshot(r));
+    for (const [sid] of r.students) {
+      io.to(sid).emit("ownAnswer", r.responses.get(`${sid}:${r.scenario}`) || null);
+    }
   });
 
   socket.on("addScenario", ({ room, hostToken, title, prompt, choices }) => {
@@ -252,20 +274,26 @@ io.on("connection", (socket) => {
     const student = r?.students.get(socket.id);
     if (!r || !student || !r.started) return socket.emit("serverError", "ยังไม่เปิดรับคำตอบ");
 
+    const scenarioIndex = r.scenario;
+    const responseKey = `${socket.id}:${scenarioIndex}`;
+    if (r.responses.has(responseKey)) {
+      return socket.emit("answerAlreadySaved", r.responses.get(responseKey));
+    }
+
     const item = {
       id: socket.id,
       name: student.name,
       choice: Number(choice),
       answer: String(answer || "").slice(0, 1500),
       reflection: String(reflection || "").slice(0, 1000),
-      scenario: r.scenario,
+      scenario: scenarioIndex,
       at: new Date().toISOString()
     };
-    r.responses.set(socket.id, item);
+    r.responses.set(responseKey, item);
 
-    io.to(r.host).emit("newResponse", item);
+    io.to(room).emit("responseReceived", item);
     emitRoom(room, "roomUpdate", roomSnapshot(r));
-    socket.emit("answerSaved", { ok: true });
+    socket.emit("answerSaved", { ok: true, item });
   });
 
   socket.on("disconnect", () => {
