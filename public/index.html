@@ -15,7 +15,13 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 .qr{display:flex;gap:22px;align-items:center;flex-wrap:wrap}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .stat{background:#f7f8fb;padding:12px;border-radius:14px;text-align:center}.stat b{display:block;font-size:28px}
 .choice{width:100%;text-align:left;padding:15px;border:2px solid #dfe4ed;background:#fff;border-radius:14px;font:inherit;cursor:pointer}
-.choice.selected{border-color:#5965ff;background:#f0f2ff}.response{padding:13px;border-bottom:1px solid #e5e8ef}.answerGroup{margin:12px 0;border:2px solid #e5e8ef;border-radius:16px;overflow:hidden}.answerHead{padding:14px;background:#f7f8fb;display:flex;justify-content:space-between;gap:12px;align-items:center}.bar{height:10px;background:#e8ebf2;border-radius:99px;overflow:hidden;margin-top:8px}.bar>span{display:block;height:100%;background:#5965ff;border-radius:99px}.answerBody{padding:4px 14px}.summaryBox{white-space:pre-wrap;background:#f7f8fb;padding:16px;border-radius:14px;line-height:1.8}
+.choice.selected{border-color:#5965ff;background:#f0f2ff}.response{padding:13px;border-bottom:1px solid #e5e8ef}.answerGroup{margin:12px 0;border:2px solid #e5e8ef;border-radius:16px;overflow:hidden}.answerHead{padding:14px;background:#f7f8fb;display:flex;justify-content:space-between;gap:12px;align-items:center}.bar{height:10px;background:#e8ebf2;border-radius:99px;overflow:hidden;margin-top:8px}.bar>span{display:block;height:100%;background:#5965ff;border-radius:99px}
+.answerBody{padding:4px 14px}
+.detailClosed{display:none}
+.detailBtn{border:0;border-radius:10px;padding:8px 12px;background:#eef0ff;color:#303a8c;font-weight:800;cursor:pointer}
+.responseHead{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:7px}
+.small{font-size:12px;color:#667085}
+.summaryBox{white-space:pre-wrap;background:#f7f8fb;padding:16px;border-radius:14px;line-height:1.8}
 .chain{display:flex;gap:8px;overflow:auto}.tile{min-width:145px;padding:14px;background:#f0f2f7;border-radius:14px;text-align:center;font-weight:800}
 .status{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#f3f4f6;font-weight:800;font-size:14px}
 .dot{width:10px;height:10px;border-radius:50%;background:#9ca3af}.online .dot{background:#16a34a}.offline .dot{background:#dc2626}
@@ -284,9 +290,29 @@ function renderResponseGroups(responses){
   if(!total){ box.innerHTML="<div class=\"muted\">ยังไม่มีคำตอบ</div>"; return; }
   box.innerHTML=choices.map((label,i)=>{
     const group=responses.filter(r=>Number(r.choice)===i);
-    const pct=total?Math.round(group.length/total*100):0;
-    return `<div class="answerGroup"><div class="answerHead"><div><b>ข้อ ${i+1}</b> • ${esc(label)}</div><strong>${group.length} คน (${pct}%)</strong></div><div style="padding:0 14px 10px"><div class="bar"><span style="width:${pct}%"></span></div></div><div class="answerBody">${group.length?group.map(r=>`<div class="response"><b>${esc(r.name)}</b><br><b>เหตุผล:</b> ${esc(r.answer)}<br><b>Reflection:</b> ${esc(r.reflection||"-")}</div>`).join(""):"<div class=\"muted\" style=\"padding:12px 0\">ยังไม่มีผู้เลือกข้อนี้</div>"}</div></div>`;
+    const pct=total?Math.round(group.length/total*1000)/10:0;
+    const detailId="choice-detail-"+i;
+    return `<div class="answerGroup">
+      <div class="answerHead"><div><b>ข้อ ${i+1}</b> • ${esc(label)}</div><strong>${group.length} คน (${pct}%)</strong></div>
+      <div style="padding:0 14px 10px"><div class="bar"><span style="width:${pct}%"></span></div></div>
+      <div style="padding:0 14px 10px">
+        <button class="detailBtn" onclick="toggleChoiceDetails('${detailId}',this)">🔎 ดูรายละเอียด ▼</button>
+      </div>
+      <div id="${detailId}" class="answerBody detailClosed">
+        ${group.length?group.map(r=>`<div class="response">
+          <div class="responseHead"><b>👤 ${esc(r.name)}</b><span class="small">${r.at?new Date(r.at).toLocaleTimeString("th-TH"):""}</span></div>
+          <div><b>💭 เหตุผล:</b><br>${esc(r.answer||"-")}</div>
+          <div><b>🔄 Reflection:</b><br>${esc(r.reflection||"-")}</div>
+        </div>`).join(""):"<div class=\"muted\" style=\"padding:12px 0\">ยังไม่มีผู้เลือกข้อนี้</div>"}
+      </div>
+    </div>`;
   }).join("");
+}
+function toggleChoiceDetails(id,btn){
+  const el=$(id);
+  if(!el)return;
+  const closed=el.classList.toggle("detailClosed");
+  btn.textContent=closed?"🔎 ดูรายละเอียด ▼":"🔼 ซ่อนรายละเอียด ▲";
 }
 
 function saveSummary(){
