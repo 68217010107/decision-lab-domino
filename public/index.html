@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Decision Lab • เกมผลกระทบโดมิโน</title>
 <script src="/socket.io/socket.io.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,"Noto Sans Thai",sans-serif;background:linear-gradient(135deg,#f3f5ff,#f8fbff);color:#172033}
 .wrap{max-width:1100px;margin:auto;padding:16px}.card{background:#fff;border-radius:24px;padding:22px;margin:14px 0;box-shadow:0 12px 34px #17203312}
@@ -54,6 +55,7 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 <button class="btn primary" onclick="startRound()">▶ เริ่มสถานการณ์</button>
 <button class="btn soft" onclick="previousRound()">← สถานการณ์ก่อนหน้า</button>
 <button class="btn soft" onclick="nextRound()">สถานการณ์ถัดไป →</button>
+<button class="btn soft" onclick="downloadExcel()">📥 ดาวน์โหลดข้อมูลทั้งหมดเป็น Excel</button>
 <button class="btn danger" onclick="closeRoom()">⛔ ปิดห้อง</button>
 </div></div></div>
 <div class="card"><div class="stats"><div class="stat">ผู้เข้าร่วม<b id="people">0</b></div><div class="stat">ตอบแล้ว<b id="answers">0</b></div><div class="stat">สถานการณ์<b id="round">1/6</b></div></div></div>
@@ -103,6 +105,21 @@ function setStatus(ok,text){
   $("statusText").textContent=text;
   $("createBtn").disabled=!ok;
   $("joinBtn").disabled=!ok;
+}
+
+async function downloadExcel(){
+  if(!room)return alert("ยังไม่มีรหัสห้อง");
+  try{
+    const res=await fetch("/api/export/"+encodeURIComponent(room)); const data=await res.json();
+    if(!res.ok)throw new Error(data.error||"ไม่สามารถดาวน์โหลดข้อมูลได้");
+    const ss=data.scenarios||[], rs=data.responses||[], st=data.students||[];
+    const detail=rs.map((r,i)=>({"ลำดับ":i+1,"รหัสห้อง":data.room,"ชื่อนักศึกษา":r.name||"","สถานการณ์":(ss[r.scenario]||{}).title||("สถานการณ์ "+(Number(r.scenario)+1)),"ข้อที่":Number(r.choice)+1,"ตัวเลือก":((ss[r.scenario]||{}).choices||[])[Number(r.choice)]||"","เหตุผล":r.answer||"","Reflection":r.reflection||"","เวลา":r.at?new Date(r.at).toLocaleString("th-TH"):""}));
+    const stats=[]; ss.forEach((sc,si)=>{const rr=rs.filter(x=>Number(x.scenario)===si);(sc.choices||[]).forEach((c,ci)=>{const n=rr.filter(x=>Number(x.choice)===ci).length;stats.push({"สถานการณ์":sc.title,"ข้อที่":ci+1,"ตัวเลือก":c,"จำนวนคำตอบ":n,"ร้อยละ":rr.length?Math.round(n*1000/rr.length)/10:0});});});
+    const students=st.map((x,i)=>({"ลำดับ":i+1,"ชื่อนักศึกษา":x.name||"","จำนวนคำตอบ":rs.filter(r=>r.id===x.id).length}));
+    const scenarios=ss.map((x,i)=>({"ลำดับ":i+1,"สถานการณ์":x.title||"","รายละเอียด":x.prompt||"","จำนวนตัวเลือก":(x.choices||[]).length}));
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detail),"คำตอบทั้งหมด"); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(stats),"สถิติ"); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(students),"นักศึกษา"); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(scenarios),"สถานการณ์");
+    XLSX.writeFile(wb,`Decision-Lab-ข้อมูลทั้งหมด-${data.room}.xlsx`);
+  }catch(e){alert("ดาวน์โหลดไม่สำเร็จ: "+e.message)}
 }
 
 function connect(){

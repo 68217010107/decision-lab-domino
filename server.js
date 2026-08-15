@@ -315,6 +315,13 @@ io.on("connection", (socket) => {
   });
 });
 
+app.get("/api/export/:room", (req, res) => {
+  const roomCode = String(req.params.room || "").toUpperCase();
+  const r = rooms.get(roomCode);
+  if (!r) return res.status(404).json({ error: "ไม่พบห้อง หรือห้องหมดอายุแล้ว" });
+  res.json({ room: roomCode, hostName: r.hostName, scenarios: r.scenarios || scenarios, students: [...r.students.values()], responses: [...r.responses.values()] });
+});
+
 app.get("/health", (req, res) => {
   res.json({ ok: true, service: "decision-lab-domino", rooms: rooms.size });
 });
