@@ -15,7 +15,7 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 .qr{display:flex;gap:22px;align-items:center;flex-wrap:wrap}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .stat{background:#f7f8fb;padding:12px;border-radius:14px;text-align:center}.stat b{display:block;font-size:28px}
 .choice{width:100%;text-align:left;padding:15px;border:2px solid #dfe4ed;background:#fff;border-radius:14px;font:inherit;cursor:pointer}
-.choice.selected{border-color:#5965ff;background:#f0f2ff}.response{padding:13px;border-bottom:1px solid #e5e8ef}
+.choice.selected{border-color:#5965ff;background:#f0f2ff}.response{padding:13px;border-bottom:1px solid #e5e8ef}.answerGroup{margin:12px 0;border:2px solid #e5e8ef;border-radius:16px;overflow:hidden}.answerHead{padding:14px;background:#f7f8fb;display:flex;justify-content:space-between;gap:12px;align-items:center}.bar{height:10px;background:#e8ebf2;border-radius:99px;overflow:hidden;margin-top:8px}.bar>span{display:block;height:100%;background:#5965ff;border-radius:99px}.answerBody{padding:4px 14px}.summaryBox{white-space:pre-wrap;background:#f7f8fb;padding:16px;border-radius:14px;line-height:1.8}
 .chain{display:flex;gap:8px;overflow:auto}.tile{min-width:145px;padding:14px;background:#f0f2f7;border-radius:14px;text-align:center;font-weight:800}
 .status{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#f3f4f6;font-weight:800;font-size:14px}
 .dot{width:10px;height:10px;border-radius:50%;background:#9ca3af}.online .dot{background:#16a34a}.offline .dot{background:#dc2626}
@@ -66,6 +66,7 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 </div>
 <div id="scenarioList" class="notice" style="margin-top:16px"></div>
 </div>
+<div class="card" id="summaryManager"><h2>📝 แก้ไขข้อความสรุปกิจกรรม</h2><p class="muted">อาจารย์สามารถเปลี่ยนข้อความสรุปที่จะใช้ปิดกิจกรรมได้ตลอดเวลา</p><textarea id="summaryText" class="textarea" placeholder="พิมพ์ข้อความสรุปกิจกรรม"></textarea><br><br><button class="btn primary" onclick="saveSummary()">💾 บันทึกข้อความสรุป</button><span id="summaryMsg" class="muted" style="margin-left:12px"></span></div>
 </section>
 
 <section id="student" class="hidden">
@@ -78,12 +79,11 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 <div id="studentChain" class="card hidden"><h2>🁢 ผลกระทบโดมิโน</h2><div class="chain"><div class="tile">การตัดสินใจ</div><div>→</div><div class="tile">ผลทันที</div><div>→</div><div class="tile">ผลกระทบต่อเนื่อง</div><div>→</div><div class="tile">การเรียนรู้</div></div></div>
 </section>
 
-<section id="finish" class="card hidden"><h2>🎯 สรุปกิจกรรม</h2><p class="muted">ไม่มีคำตอบที่ถูกหรือผิด แต่ <b>ผลลัพธ์เป็นตัวตัดสิน</b></p>
-<h3>ผู้บริหารที่ดีไม่จำเป็นต้องตัดสินใจถูกทุกครั้ง แต่ต้องมองเห็นผลกระทบ ประเมินผล และเรียนรู้เพื่อทำให้การตัดสินใจครั้งต่อไปดีขึ้น</h3></section>
+<section id="finish" class="card hidden"><h2>🎯 สรุปกิจกรรม</h2><div id="finishSummary" class="summaryBox"></div></section>
 </div>
 
 <script>
-let socket=null, connected=false, room="", host=false, current=0, selected=null, scenarios=[], hostToken=localStorage.getItem("decisionLabHostToken")||"";
+let socket=null, connected=false, room="", host=false, current=0, selected=null, scenarios=[], currentResponses=[], hostSummary="ไม่มีคำตอบที่ถูกหรือผิด แต่ผลลัพธ์เป็นตัวตัดสิน\n\nผู้บริหารที่ดีไม่จำเป็นต้องตัดสินใจถูกทุกครั้ง แต่ต้องมองเห็นผลกระทบ ประเมินผล และเรียนรู้เพื่อทำให้การตัดสินใจครั้งต่อไปดีขึ้น", hostToken=localStorage.getItem("decisionLabHostToken")||"";
 
 const $=id=>document.getElementById(id);
 function show(id){["home","host","student","finish"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
@@ -126,7 +126,7 @@ function connect(){
   });
 
   socket.on("hostRejoined",d=>{
-    room=d.room; scenarios=d.scenarios||[]; host=true; current=d.scenario||0;
+    room=d.room; scenarios=d.scenarios||[]; host=true; current=d.scenario||0; hostSummary=d.summary||hostSummary;
     $("roomCode").textContent=room;
     $("round").textContent=(current+1)+"/"+scenarios.length;
     if(d.data) renderHost(d.data);
@@ -149,7 +149,7 @@ function connect(){
   });
 
   socket.on("joined",d=>{
-    room=d.room; current=d.scenario||0; scenarios=d.scenarios||[]; renderStudent(d.data,d.started); show("student");
+    room=d.room; current=d.scenario||0; scenarios=d.scenarios||[]; hostSummary=d.summary||hostSummary; renderStudent(d.data,d.started); show("student");
   });
 
   socket.on("roundStarted",d=>{
@@ -167,7 +167,9 @@ function connect(){
 
   socket.on("newResponse",r=>{if(host)addResponse(r)});
   socket.on("answerSaved",()=>{$("studentMsg").textContent="ส่งคำตอบแล้ว ✓ อาจารย์ได้รับแบบ Real-time";});
-  socket.on("gameFinished",()=>show("finish"));
+  socket.on("scenariosUpdated",d=>{ scenarios=d.scenarios||[]; current=d.scenario||0; renderScenarioList(); $("round").textContent=(current+1)+"/"+scenarios.length; });
+  socket.on("summaryUpdated",d=>{ hostSummary=d.summary||hostSummary; $("summaryText").value=hostSummary; $("summaryMsg").textContent="บันทึกแล้ว ✓"; if(!host) $("finishSummary").textContent=hostSummary; });
+  socket.on("gameFinished",d=>{ if(d?.summary) hostSummary=d.summary; $("finishSummary").textContent=hostSummary; show("finish"); });
   socket.on("roomClosed",()=>{localStorage.removeItem("decisionLabHostRoom");localStorage.removeItem("decisionLabHostToken");alert("อาจารย์ปิดห้องแล้ว");location.href="/";});
 }
 
@@ -235,15 +237,32 @@ function closeRoom(){
 function renderHost(d){
   $("hostTitle").textContent=d.title;
   $("hostPrompt").textContent=d.prompt;
+  $("summaryText").value=hostSummary;
 }
 
-function addResponse(r){
+function renderAnswerStats(stats){
   const box=$("responses");
-  if(box.textContent==="ยังไม่มีคำตอบ")box.innerHTML="";
-  const choices=scenarios[r.scenario]?.choices||[];
-  const el=document.createElement("div");el.className="response";
-  el.innerHTML="<b>"+esc(r.name)+"</b><br><b>แนวทาง:</b> "+esc(choices[r.choice]||"")+"<br><b>เหตุผล:</b> "+esc(r.answer)+"<br><b>Reflection:</b> "+esc(r.reflection||"-");
-  box.prepend(el);
+  if(!stats.length){ box.innerHTML="<div class=\"muted\">ยังไม่มีคำตอบ</div>"; return; }
+  // สถิติถูกแสดงรวมกับคำตอบเป็นรายข้อ
+}
+
+function renderResponseGroups(responses){
+  const box=$("responses");
+  const sc=scenarios[current]||{choices:[]};
+  const choices=sc.choices||[];
+  const total=responses.length;
+  if(!total){ box.innerHTML="<div class=\"muted\">ยังไม่มีคำตอบ</div>"; return; }
+  box.innerHTML=choices.map((label,i)=>{
+    const group=responses.filter(r=>Number(r.choice)===i);
+    const pct=total?Math.round(group.length/total*100):0;
+    return `<div class="answerGroup"><div class="answerHead"><div><b>ข้อ ${i+1}</b> • ${esc(label)}</div><strong>${group.length} คน (${pct}%)</strong></div><div style="padding:0 14px 10px"><div class="bar"><span style="width:${pct}%"></span></div></div><div class="answerBody">${group.length?group.map(r=>`<div class="response"><b>${esc(r.name)}</b><br><b>เหตุผล:</b> ${esc(r.answer)}<br><b>Reflection:</b> ${esc(r.reflection||"-")}</div>`).join(""):"<div class=\"muted\" style=\"padding:12px 0\">ยังไม่มีผู้เลือกข้อนี้</div>"}</div></div>`;
+  }).join("");
+}
+
+function saveSummary(){
+  const text=$("summaryText").value.trim();
+  if(!text)return alert("กรุณากรอกข้อความสรุปกิจกรรม");
+  socket.emit("updateSummary",{room,hostToken,summary:text});
 }
 
 function renderStudent(d,started){

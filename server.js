@@ -58,12 +58,24 @@ function makeRoomCode() {
 }
 
 function roomSnapshot(r) {
+  const currentScenario = r.scenarios[r.scenario] || {choices: []};
+  const responses = [...r.responses.values()];
+  const counts = currentScenario.choices.map((_, i) => responses.filter(x => Number(x.choice) === i).length);
+  const total = responses.length;
+  const choiceStats = counts.map((count, i) => ({
+    index: i,
+    count,
+    percent: total ? Math.round((count / total) * 100) : 0,
+    label: currentScenario.choices[i] || `ข้อ ${i+1}`
+  }));
   return {
     count: r.students.size,
-    responses: [...r.responses.values()],
+    responses,
     scenario: r.scenario,
     started: r.started,
-    scenarios: r.scenarios
+    scenarios: r.scenarios,
+    choiceStats,
+    summary: r.summary
   };
 }
 
@@ -89,6 +101,7 @@ io.on("connection", (socket) => {
         scenario: 0,
         started: false,
         responses: new Map(),
+        summary: "ไม่มีคำตอบที่ถูกหรือผิด แต่ผลลัพธ์เป็นตัวตัดสิน\n\nผู้บริหารที่ดีไม่จำเป็นต้องตัดสินใจถูกทุกครั้ง แต่ต้องมองเห็นผลกระทบ ประเมินผล และเรียนรู้เพื่อทำให้การตัดสินใจครั้งต่อไปดีขึ้น",
         scenarios: defaultScenarios.map(x => ({...x, choices:[...(x.choices||[])]}))
       };
       rooms.set(room, r);
@@ -121,7 +134,7 @@ io.on("connection", (socket) => {
     socket.data.role = "host";
     socket.data.room = room;
     socket.data.hostToken = hostToken;
-    socket.emit("hostRejoined", { room, scenarios: r.scenarios, scenario: r.scenario, started: r.started, data: r.scenarios[r.scenario] });
+    socket.emit("hostRejoined", { room, scenarios: r.scenarios, scenario: r.scenario, started: r.started, data: r.scenarios[r.scenario], summary: r.summary });
     socket.emit("roomUpdate", roomSnapshot(r));
   });
 
@@ -141,7 +154,8 @@ io.on("connection", (socket) => {
       scenario: r.scenario,
       started: r.started,
       scenarios: r.scenarios,
-      data: r.scenarios[r.scenario]
+      data: r.scenarios[r.scenario],
+      summary: r.summary
     });
     emitRoom(room, "roomUpdate", roomSnapshot(r));
   });
@@ -170,7 +184,7 @@ io.on("connection", (socket) => {
     socket.data.hostToken = hostToken;
     if (r.scenario >= r.scenarios.length - 1) {
       r.started = false;
-      emitRoom(room, "gameFinished", {});
+      emitRoom(room, "gameFinished", { summary: r.summary });
       emitRoom(room, "roomUpdate", roomSnapshot(r));
       return;
     }
@@ -211,6 +225,16 @@ io.on("connection", (socket) => {
     r.responses.clear();
     emitRoom(room, "scenariosUpdated", { scenarios: r.scenarios, scenario: r.scenario, started: r.started });
     emitRoom(room, "roomUpdate", roomSnapshot(r));
+  });
+
+  socket.on("updateSummary", ({ room, hostToken, summary }) => {
+    room = String(room || "").trim().toUpperCase();
+    const r = rooms.get(room);
+    if (!isHost(r, hostToken)) return socket.emit("serverError", "ไม่มีสิทธิ์แก้ไขข้อความสรุป");
+    const clean = String(summary || "").trim().slice(0, 2000);
+    if (!clean) return socket.emit("serverError", "กรุณากรอกข้อความสรุป");
+    r.summary = clean;
+    emitRoom(room, "summaryUpdated", { summary: r.summary });
   });
 
   socket.on("closeRoom", ({ room, hostToken }) => {
