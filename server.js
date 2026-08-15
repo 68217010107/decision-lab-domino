@@ -18,6 +18,19 @@ app.use(express.json());
 app.use(express.static("public"));
 
 const rooms = new Map();
+const ROOM_TTL_MS = 30 * 60 * 1000; // เก็บห้องไว้ 30 นาที แม้อาจารย์ reconnect
+
+function scheduleRoomExpiry(room) {
+  const r = rooms.get(room);
+  if (!r) return;
+  clearTimeout(r.expiryTimer);
+  r.expiryTimer = setTimeout(() => {
+    const latest = rooms.get(room);
+    if (!latest) return;
+    rooms.delete(room);
+    emitRoom(room, "roomClosed", { reason: "หมดอายุห้อง" });
+  }, ROOM_TTL_MS);
+}
 
 // ใช้ token แทน socket.id เพื่อให้สิทธิ์อาจารย์ไม่หายเมื่อมือถือ/เบราว์เซอร์ reconnect
 function makeHostToken() { return crypto.randomBytes(24).toString("hex"); }
@@ -73,6 +86,7 @@ io.on("connection", (socket) => {
         responses: new Map()
       };
       rooms.set(room, r);
+      scheduleRoomExpiry(room);
       socket.join(room);
       socket.data.role = "host";
       socket.data.room = room;
@@ -96,6 +110,7 @@ io.on("connection", (socket) => {
       return socket.emit("serverError", "ไม่สามารถยืนยันสิทธิ์อาจารย์ของห้องนี้ได้");
     }
     r.host = socket.id;
+    scheduleRoomExpiry(room);
     socket.join(room);
     socket.data.role = "host";
     socket.data.room = room;
@@ -126,7 +141,12 @@ io.on("connection", (socket) => {
 
   socket.on("startRound", ({ room, hostToken }) => {
     const r = rooms.get(String(room || "").toUpperCase());
-    if (!r || r.host !== socket.id || hostToken !== r.hostToken) return socket.emit("serverError", "ไม่มีสิทธิ์เริ่มกิจกรรม");
+    // สิทธิ์อาจารย์ยืนยันด้วย Host Token ไม่ผูกกับ socket.id
+    if (!r || hostToken !== r.hostToken) return socket.emit("serverError", "ไม่มีสิทธิ์เริ่มกิจกรรม");
+    r.host = socket.id;
+    socket.data.role = "host";
+    socket.data.room = String(room || "").toUpperCase();
+    socket.data.hostToken = hostToken;
     r.responses.clear();
     r.started = true;
     emitRoom(room, "roundStarted", { scenario: r.scenario, data: scenarios[r.scenario] });
@@ -135,7 +155,12 @@ io.on("connection", (socket) => {
 
   socket.on("nextRound", ({ room, hostToken }) => {
     const r = rooms.get(String(room || "").toUpperCase());
-    if (!r || r.host !== socket.id || hostToken !== r.hostToken) return socket.emit("serverError", "ไม่มีสิทธิ์เปลี่ยนสถานการณ์");
+    // สิทธิ์อาจารย์ยืนยันด้วย Host Token ไม่ผูกกับ socket.id
+    if (!r || hostToken !== r.hostToken) return socket.emit("serverError", "ไม่มีสิทธิ์เปลี่ยนสถานการณ์");
+    r.host = socket.id;
+    socket.data.role = "host";
+    socket.data.room = String(room || "").toUpperCase();
+    socket.data.hostToken = hostToken;
     if (r.scenario >= scenarios.length - 1) {
       r.started = false;
       emitRoom(room, "gameFinished", {});
@@ -178,8 +203,10 @@ io.on("connection", (socket) => {
     if (!r) return;
 
     if (r.host === socket.id) {
-      rooms.delete(room);
-      emitRoom(room, "roomClosed", {});
+      // ห้ามลบห้องทันที เพราะเบราว์เซอร์อาจ reconnect ชั่วคราว
+      // เก็บห้องไว้ตาม TTL และให้อาจารย์กลับเข้าด้วย Host Token ได้
+      r.host = null;
+      scheduleRoomExpiry(room);
     } else {
       r.students.delete(socket.id);
       r.responses.delete(socket.id);

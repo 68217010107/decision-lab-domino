@@ -101,7 +101,13 @@ function connect(){
   socket.on("serverReady",()=>setStatus(true,"🟢 Server พร้อมใช้งาน"));
   socket.on("disconnect",()=>setStatus(false,"🔴 หลุดการเชื่อมต่อ • กำลังเชื่อมต่อใหม่..."));
   socket.on("connect_error",(err)=>setStatus(false,"🔴 เชื่อมต่อไม่ได้: "+err.message));
-  socket.on("serverError",(m)=>alert(m));
+  socket.on("serverError",(m)=>{
+    alert(m);
+    if(String(m).includes("สิทธิ์อาจารย์")) {
+      localStorage.removeItem("decisionLabHostRoom");
+      localStorage.removeItem("decisionLabHostToken");
+    }
+  });
 
   socket.on("hostRejoined",d=>{
     room=d.room; scenarios=d.scenarios||[]; host=true; current=d.scenario||0;
@@ -170,8 +176,16 @@ function joinRoom(){
   socket.emit("joinRoom",{room,name});
 }
 
-function startRound(){if(!connected)return alert("Server ยังไม่พร้อม"); socket.emit("startRound",{room,hostToken})}
-function nextRound(){if(!connected)return alert("Server ยังไม่พร้อม"); socket.emit("nextRound",{room,hostToken})}
+function startRound(){
+  if(!connected)return alert("Server ยังไม่พร้อม");
+  if(!room||!hostToken)return alert("ไม่พบสิทธิ์อาจารย์ กรุณาสร้างห้องใหม่");
+  socket.emit("startRound",{room,hostToken});
+}
+function nextRound(){
+  if(!connected)return alert("Server ยังไม่พร้อม");
+  if(!room||!hostToken)return alert("ไม่พบสิทธิ์อาจารย์ กรุณาสร้างห้องใหม่");
+  socket.emit("nextRound",{room,hostToken});
+}
 
 function renderHost(d){
   $("hostTitle").textContent=d.title;
