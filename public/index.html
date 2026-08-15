@@ -19,7 +19,7 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 .chain{display:flex;gap:8px;overflow:auto}.tile{min-width:145px;padding:14px;background:#f0f2f7;border-radius:14px;text-align:center;font-weight:800}
 .status{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#f3f4f6;font-weight:800;font-size:14px}
 .dot{width:10px;height:10px;border-radius:50%;background:#9ca3af}.online .dot{background:#16a34a}.offline .dot{background:#dc2626}
-.notice{background:#f4f6ff;padding:14px;border-radius:14px}
+.notice{background:#f4f6ff;padding:14px;border-radius:14px}.danger{background:#fee2e2;color:#991b1b}.scenarioRow{display:flex;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid #e5e8ef}.scenarioRow .grow{flex:1}.small{padding:9px 12px;font-size:14px}
 @media(max-width:700px){.grid,.stats{grid-template-columns:1fr}.wrap{padding:10px}.card{padding:17px}}
 </style>
 </head>
@@ -47,7 +47,21 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 <p>ให้นักศึกษาสแกน QR นี้</p><div class="code" id="roomCode"></div><p class="muted">หรือใช้รหัสห้อง</p>
 <button class="btn primary" onclick="startRound()">▶ เริ่มสถานการณ์</button>
 <button class="btn soft" onclick="nextRound()">สถานการณ์ถัดไป →</button>
+<button class="btn danger" onclick="closeRoom()">⛔ ปิดห้อง</button>
 </div></div></div>
+<div class="card"><h2>🛠️ จัดการสถานการณ์</h2>
+<p class="muted">อาจารย์สามารถเพิ่มสถานการณ์ใหม่ หรือ ลบสถานการณ์ที่ไม่ต้องการใช้ได้</p>
+<div class="grid">
+<div><input id="newTitle" class="input" placeholder="ชื่อสถานการณ์"><br><br>
+<textarea id="newPrompt" class="textarea" placeholder="คำอธิบายสถานการณ์"></textarea></div>
+<div><input id="choice1" class="input" placeholder="ตัวเลือกที่ 1"><br><br>
+<input id="choice2" class="input" placeholder="ตัวเลือกที่ 2"><br><br>
+<input id="choice3" class="input" placeholder="ตัวเลือกที่ 3 (ถ้ามี)"><br><br>
+<input id="choice4" class="input" placeholder="ตัวเลือกที่ 4 (ถ้ามี)"><br><br>
+<button class="btn primary" onclick="addScenario()">➕ เพิ่มสถานการณ์</button></div>
+</div>
+<div id="scenarioList" class="notice" style="margin-top:16px"></div>
+</div>
 <div class="card"><div class="stats"><div class="stat">ผู้เข้าร่วม<b id="people">0</b></div><div class="stat">ตอบแล้ว<b id="answers">0</b></div><div class="stat">สถานการณ์<b id="round">1/6</b></div></div></div>
 <div class="card"><h2 id="hostTitle">รอเริ่มกิจกรรม</h2><p id="hostPrompt" class="muted"></p><h3>📝 คำตอบนักศึกษาแบบ Real-time</h3><div id="responses">ยังไม่มีคำตอบ</div></div>
 </section>
@@ -114,6 +128,7 @@ function connect(){
     $("roomCode").textContent=room;
     $("round").textContent=(current+1)+"/"+scenarios.length;
     if(d.data) renderHost(d.data);
+    renderScenarioList();
     makeQR(location.origin+"/?room="+room);
     history.replaceState({},'',"/?room="+room);
     show("host");
@@ -125,13 +140,14 @@ function connect(){
     localStorage.setItem("decisionLabHostToken",hostToken);
     $("roomCode").textContent=room;
     $("round").textContent="1/"+scenarios.length;
+    renderScenarioList();
     makeQR(location.origin+"/?room="+room);
     history.replaceState({},'',"/?room="+room);
     show("host");
   });
 
   socket.on("joined",d=>{
-    room=d.room; current=d.scenario||0; renderStudent(d.data,d.started); show("student");
+    room=d.room; current=d.scenario||0; scenarios=d.scenarios||[]; renderStudent(d.data,d.started); show("student");
   });
 
   socket.on("roundStarted",d=>{
@@ -185,6 +201,33 @@ function nextRound(){
   if(!connected)return alert("Server ยังไม่พร้อม");
   if(!room||!hostToken)return alert("ไม่พบสิทธิ์อาจารย์ กรุณาสร้างห้องใหม่");
   socket.emit("nextRound",{room,hostToken});
+}
+
+function renderScenarioList(){
+  const box=$("scenarioList");
+  if(!scenarios.length){box.textContent="ยังไม่มีสถานการณ์";return;}
+  box.innerHTML=scenarios.map((sc,i)=>`<div class="scenarioRow"><div class="grow"><b>${i+1}. ${esc(sc.title)}</b><br><span class="muted">${esc(sc.prompt).slice(0,180)}${sc.prompt.length>180?'…':''}</span></div><button class="btn danger small" onclick="deleteScenario(${i})" ${scenarios.length<=1?'disabled':''}>🗑️ ลบ</button></div>`).join("");
+}
+
+function addScenario(){
+  if(!connected)return alert("Server ยังไม่พร้อม");
+  if(!room||!hostToken)return alert("ไม่พบสิทธิ์อาจารย์");
+  const title=$("newTitle").value.trim(), prompt=$("newPrompt").value.trim();
+  const choices=[$("choice1").value.trim(),$("choice2").value.trim(),$("choice3").value.trim(),$("choice4").value.trim()].filter(Boolean);
+  if(!title||!prompt||choices.length<2)return alert("กรุณากรอกชื่อสถานการณ์ คำอธิบาย และตัวเลือกอย่างน้อย 2 ตัวเลือก");
+  socket.emit("addScenario",{room,hostToken,title,prompt,choices});
+  $("newTitle").value="";$("newPrompt").value="";["choice1","choice2","choice3","choice4"].forEach(id=>$(id).value="");
+}
+
+function deleteScenario(i){
+  if(!confirm(`ต้องการลบสถานการณ์ที่ ${i+1} ใช่หรือไม่?`))return;
+  socket.emit("deleteScenario",{room,hostToken,index:i});
+}
+
+function closeRoom(){
+  if(!room||!hostToken)return alert("ไม่พบสิทธิ์อาจารย์");
+  if(!confirm("ต้องการปิดห้องนี้หรือไม่? นักศึกษาจะถูกออกจากห้องทันที"))return;
+  socket.emit("closeRoom",{room,hostToken});
 }
 
 function renderHost(d){

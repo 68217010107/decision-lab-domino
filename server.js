@@ -35,7 +35,7 @@ function scheduleRoomExpiry(room) {
 // ใช้ token แทน socket.id เพื่อให้สิทธิ์อาจารย์ไม่หายเมื่อมือถือ/เบราว์เซอร์ reconnect
 function makeHostToken() { return crypto.randomBytes(24).toString("hex"); }
 
-const scenarios = [
+const defaultScenarios = [
   {title:"ผลสัมฤทธิ์ลดลง",prompt:"ผลสัมฤทธิ์ของนักเรียนลดลงต่อเนื่อง 2 ภาคเรียน แต่ยังไม่มีข้อมูลเพียงพอที่จะระบุสาเหตุ",
    choices:["รวบรวมข้อมูลหลายด้านก่อน","เปิด PLC รับฟังทุกฝ่าย","ปรับวิธีสอนทันที","ตั้งมาตรการช่วยเหลือทันที"]},
   {title:"ความขัดแย้งระหว่างครู",prompt:"ครูสองกลุ่มมีความเห็นไม่ตรงกันเรื่องภาระงานจนกระทบการทำงานร่วมกัน",
@@ -62,8 +62,13 @@ function roomSnapshot(r) {
     count: r.students.size,
     responses: [...r.responses.values()],
     scenario: r.scenario,
-    started: r.started
+    started: r.started,
+    scenarios: r.scenarios
   };
+}
+
+function isHost(r, hostToken) {
+  return !!r && !!hostToken && hostToken === r.hostToken;
 }
 
 function emitRoom(room, event, payload) {
@@ -83,7 +88,8 @@ io.on("connection", (socket) => {
         students: new Map(),
         scenario: 0,
         started: false,
-        responses: new Map()
+        responses: new Map(),
+        scenarios: defaultScenarios.map(x => ({...x, choices:[...(x.choices||[])]}))
       };
       rooms.set(room, r);
       scheduleRoomExpiry(room);
@@ -95,7 +101,7 @@ io.on("connection", (socket) => {
       socket.emit("roomCreated", {
         room,
         joinUrl: `${process.env.RENDER_EXTERNAL_URL || ""}/?room=${room}`,
-        scenarios,
+        scenarios: r.scenarios,
         hostToken: r.hostToken
       });
     } catch (err) {
@@ -115,7 +121,7 @@ io.on("connection", (socket) => {
     socket.data.role = "host";
     socket.data.room = room;
     socket.data.hostToken = hostToken;
-    socket.emit("hostRejoined", { room, scenarios, scenario: r.scenario, started: r.started, data: scenarios[r.scenario] });
+    socket.emit("hostRejoined", { room, scenarios: r.scenarios, scenario: r.scenario, started: r.started, data: r.scenarios[r.scenario] });
     socket.emit("roomUpdate", roomSnapshot(r));
   });
 
@@ -134,7 +140,8 @@ io.on("connection", (socket) => {
       room,
       scenario: r.scenario,
       started: r.started,
-      data: scenarios[r.scenario]
+      scenarios: r.scenarios,
+      data: r.scenarios[r.scenario]
     });
     emitRoom(room, "roomUpdate", roomSnapshot(r));
   });
@@ -142,26 +149,26 @@ io.on("connection", (socket) => {
   socket.on("startRound", ({ room, hostToken }) => {
     const r = rooms.get(String(room || "").toUpperCase());
     // สิทธิ์อาจารย์ยืนยันด้วย Host Token ไม่ผูกกับ socket.id
-    if (!r || hostToken !== r.hostToken) return socket.emit("serverError", "ไม่มีสิทธิ์เริ่มกิจกรรม");
+    if (!isHost(r, hostToken)) return socket.emit("serverError", "ไม่มีสิทธิ์เริ่มกิจกรรม");
     r.host = socket.id;
     socket.data.role = "host";
     socket.data.room = String(room || "").toUpperCase();
     socket.data.hostToken = hostToken;
     r.responses.clear();
     r.started = true;
-    emitRoom(room, "roundStarted", { scenario: r.scenario, data: scenarios[r.scenario] });
+    emitRoom(room, "roundStarted", { scenario: r.scenario, data: r.scenarios[r.scenario] });
     emitRoom(room, "roomUpdate", roomSnapshot(r));
   });
 
   socket.on("nextRound", ({ room, hostToken }) => {
     const r = rooms.get(String(room || "").toUpperCase());
     // สิทธิ์อาจารย์ยืนยันด้วย Host Token ไม่ผูกกับ socket.id
-    if (!r || hostToken !== r.hostToken) return socket.emit("serverError", "ไม่มีสิทธิ์เปลี่ยนสถานการณ์");
+    if (!isHost(r, hostToken)) return socket.emit("serverError", "ไม่มีสิทธิ์เปลี่ยนสถานการณ์");
     r.host = socket.id;
     socket.data.role = "host";
     socket.data.room = String(room || "").toUpperCase();
     socket.data.hostToken = hostToken;
-    if (r.scenario >= scenarios.length - 1) {
+    if (r.scenario >= r.scenarios.length - 1) {
       r.started = false;
       emitRoom(room, "gameFinished", {});
       emitRoom(room, "roomUpdate", roomSnapshot(r));
@@ -170,8 +177,49 @@ io.on("connection", (socket) => {
     r.scenario += 1;
     r.responses.clear();
     r.started = true;
-    emitRoom(room, "roundStarted", { scenario: r.scenario, data: scenarios[r.scenario] });
+    emitRoom(room, "roundStarted", { scenario: r.scenario, data: r.scenarios[r.scenario] });
     emitRoom(room, "roomUpdate", roomSnapshot(r));
+  });
+
+  socket.on("addScenario", ({ room, hostToken, title, prompt, choices }) => {
+    room = String(room || "").trim().toUpperCase();
+    const r = rooms.get(room);
+    if (!isHost(r, hostToken)) return socket.emit("serverError", "ไม่มีสิทธิ์เพิ่มสถานการณ์");
+    const cleanTitle = String(title || "").trim().slice(0, 120);
+    const cleanPrompt = String(prompt || "").trim().slice(0, 1000);
+    const cleanChoices = Array.isArray(choices) ? choices.map(x => String(x || "").trim().slice(0, 300)).filter(Boolean).slice(0, 8) : [];
+    if (!cleanTitle || !cleanPrompt || cleanChoices.length < 2) {
+      return socket.emit("serverError", "กรุณากรอกชื่อสถานการณ์ คำอธิบาย และตัวเลือกอย่างน้อย 2 ตัวเลือก");
+    }
+    r.scenarios.push({ title: cleanTitle, prompt: cleanPrompt, choices: cleanChoices });
+    r.responses.clear();
+    emitRoom(room, "scenariosUpdated", { scenarios: r.scenarios, scenario: r.scenario, started: r.started });
+    emitRoom(room, "roomUpdate", roomSnapshot(r));
+  });
+
+  socket.on("deleteScenario", ({ room, hostToken, index }) => {
+    room = String(room || "").trim().toUpperCase();
+    const r = rooms.get(room);
+    if (!isHost(r, hostToken)) return socket.emit("serverError", "ไม่มีสิทธิ์ลบสถานการณ์");
+    const i = Number(index);
+    if (!Number.isInteger(i) || i < 0 || i >= r.scenarios.length) return socket.emit("serverError", "ไม่พบสถานการณ์ที่ต้องการลบ");
+    if (r.scenarios.length <= 1) return socket.emit("serverError", "ต้องเหลืออย่างน้อย 1 สถานการณ์");
+    r.scenarios.splice(i, 1);
+    if (r.scenario >= r.scenarios.length) r.scenario = r.scenarios.length - 1;
+    else if (i < r.scenario) r.scenario -= 1;
+    r.started = false;
+    r.responses.clear();
+    emitRoom(room, "scenariosUpdated", { scenarios: r.scenarios, scenario: r.scenario, started: r.started });
+    emitRoom(room, "roomUpdate", roomSnapshot(r));
+  });
+
+  socket.on("closeRoom", ({ room, hostToken }) => {
+    room = String(room || "").trim().toUpperCase();
+    const r = rooms.get(room);
+    if (!isHost(r, hostToken)) return socket.emit("serverError", "ไม่มีสิทธิ์ปิดห้อง");
+    rooms.delete(room);
+    clearTimeout(r.expiryTimer);
+    emitRoom(room, "roomClosed", { reason: "อาจารย์ปิดห้อง" });
   });
 
   socket.on("submitAnswer", ({ room, choice, answer, reflection }) => {
