@@ -19,6 +19,9 @@ app.use(express.static("public"));
 
 const rooms = new Map();
 
+// ใช้ token แทน socket.id เพื่อให้สิทธิ์อาจารย์ไม่หายเมื่อมือถือ/เบราว์เซอร์ reconnect
+function makeHostToken() { return crypto.randomBytes(24).toString("hex"); }
+
 const scenarios = [
   {title:"ผลสัมฤทธิ์ลดลง",prompt:"ผลสัมฤทธิ์ของนักเรียนลดลงต่อเนื่อง 2 ภาคเรียน แต่ยังไม่มีข้อมูลเพียงพอที่จะระบุสาเหตุ",
    choices:["รวบรวมข้อมูลหลายด้านก่อน","เปิด PLC รับฟังทุกฝ่าย","ปรับวิธีสอนทันที","ตั้งมาตรการช่วยเหลือทันที"]},
@@ -62,6 +65,7 @@ io.on("connection", (socket) => {
       const room = makeRoomCode();
       const r = {
         host: socket.id,
+        hostToken: makeHostToken(),
         hostName: String(name || "อาจารย์").slice(0, 60),
         students: new Map(),
         scenario: 0,
@@ -72,15 +76,32 @@ io.on("connection", (socket) => {
       socket.join(room);
       socket.data.role = "host";
       socket.data.room = room;
+      socket.data.hostToken = r.hostToken;
 
       socket.emit("roomCreated", {
         room,
         joinUrl: `${process.env.RENDER_EXTERNAL_URL || ""}/?room=${room}`,
-        scenarios
+        scenarios,
+        hostToken: r.hostToken
       });
     } catch (err) {
       socket.emit("serverError", "สร้างห้องไม่สำเร็จ: " + err.message);
     }
+  });
+
+  socket.on("hostRejoin", ({ room, hostToken }) => {
+    room = String(room || "").trim().toUpperCase();
+    const r = rooms.get(room);
+    if (!r || !hostToken || hostToken !== r.hostToken) {
+      return socket.emit("serverError", "ไม่สามารถยืนยันสิทธิ์อาจารย์ของห้องนี้ได้");
+    }
+    r.host = socket.id;
+    socket.join(room);
+    socket.data.role = "host";
+    socket.data.room = room;
+    socket.data.hostToken = hostToken;
+    socket.emit("hostRejoined", { room, scenarios, scenario: r.scenario, started: r.started, data: scenarios[r.scenario] });
+    socket.emit("roomUpdate", roomSnapshot(r));
   });
 
   socket.on("joinRoom", ({ room, name }) => {
@@ -103,18 +124,18 @@ io.on("connection", (socket) => {
     emitRoom(room, "roomUpdate", roomSnapshot(r));
   });
 
-  socket.on("startRound", ({ room }) => {
+  socket.on("startRound", ({ room, hostToken }) => {
     const r = rooms.get(String(room || "").toUpperCase());
-    if (!r || r.host !== socket.id) return socket.emit("serverError", "ไม่มีสิทธิ์เริ่มกิจกรรม");
+    if (!r || r.host !== socket.id || hostToken !== r.hostToken) return socket.emit("serverError", "ไม่มีสิทธิ์เริ่มกิจกรรม");
     r.responses.clear();
     r.started = true;
     emitRoom(room, "roundStarted", { scenario: r.scenario, data: scenarios[r.scenario] });
     emitRoom(room, "roomUpdate", roomSnapshot(r));
   });
 
-  socket.on("nextRound", ({ room }) => {
+  socket.on("nextRound", ({ room, hostToken }) => {
     const r = rooms.get(String(room || "").toUpperCase());
-    if (!r || r.host !== socket.id) return socket.emit("serverError", "ไม่มีสิทธิ์เปลี่ยนสถานการณ์");
+    if (!r || r.host !== socket.id || hostToken !== r.hostToken) return socket.emit("serverError", "ไม่มีสิทธิ์เปลี่ยนสถานการณ์");
     if (r.scenario >= scenarios.length - 1) {
       r.started = false;
       emitRoom(room, "gameFinished", {});

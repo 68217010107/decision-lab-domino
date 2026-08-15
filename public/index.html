@@ -67,7 +67,7 @@ h1{font-size:clamp(30px,6vw,52px);margin:0 0 8px}h2{margin-top:0}.muted{color:#6
 </div>
 
 <script>
-let socket=null, connected=false, room="", host=false, current=0, selected=null, scenarios=[];
+let socket=null, connected=false, room="", host=false, current=0, selected=null, scenarios=[], hostToken=localStorage.getItem("decisionLabHostToken")||"";
 
 const $=id=>document.getElementById(id);
 function show(id){["home","host","student","finish"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
@@ -90,14 +90,33 @@ function connect(){
     timeout:15000
   });
 
-  socket.on("connect",()=>setStatus(true,"🟢 Real-time เชื่อมต่อแล้ว"));
+  socket.on("connect",()=>{
+    setStatus(true,"🟢 Real-time เชื่อมต่อแล้ว");
+    // ถ้าเป็นอาจารย์และ socket เปลี่ยน ให้ยืนยันสิทธิ์กับห้องเดิมใหม่
+    const savedRoom=localStorage.getItem("decisionLabHostRoom");
+    if(savedRoom && hostToken){
+      socket.emit("hostRejoin",{room:savedRoom,hostToken});
+    }
+  });
   socket.on("serverReady",()=>setStatus(true,"🟢 Server พร้อมใช้งาน"));
   socket.on("disconnect",()=>setStatus(false,"🔴 หลุดการเชื่อมต่อ • กำลังเชื่อมต่อใหม่..."));
   socket.on("connect_error",(err)=>setStatus(false,"🔴 เชื่อมต่อไม่ได้: "+err.message));
   socket.on("serverError",(m)=>alert(m));
 
+  socket.on("hostRejoined",d=>{
+    room=d.room; scenarios=d.scenarios||[]; host=true; current=d.scenario||0;
+    $("roomCode").textContent=room;
+    $("round").textContent=(current+1)+"/"+scenarios.length;
+    if(d.data) renderHost(d.data);
+    makeQR(location.origin+"/?room="+room);
+    history.replaceState({},'',"/?room="+room);
+    show("host");
+  });
+
   socket.on("roomCreated",d=>{
-    room=d.room; scenarios=d.scenarios||[]; host=true;
+    room=d.room; scenarios=d.scenarios||[]; host=true; hostToken=d.hostToken||"";
+    localStorage.setItem("decisionLabHostRoom",room);
+    localStorage.setItem("decisionLabHostToken",hostToken);
     $("roomCode").textContent=room;
     $("round").textContent="1/"+scenarios.length;
     makeQR(location.origin+"/?room="+room);
@@ -125,7 +144,7 @@ function connect(){
   socket.on("newResponse",r=>{if(host)addResponse(r)});
   socket.on("answerSaved",()=>{$("studentMsg").textContent="ส่งคำตอบแล้ว ✓ อาจารย์ได้รับแบบ Real-time";});
   socket.on("gameFinished",()=>show("finish"));
-  socket.on("roomClosed",()=>{alert("อาจารย์ปิดห้องแล้ว");location.href="/";});
+  socket.on("roomClosed",()=>{localStorage.removeItem("decisionLabHostRoom");localStorage.removeItem("decisionLabHostToken");alert("อาจารย์ปิดห้องแล้ว");location.href="/";});
 }
 
 function makeQR(text){
@@ -151,8 +170,8 @@ function joinRoom(){
   socket.emit("joinRoom",{room,name});
 }
 
-function startRound(){socket.emit("startRound",{room})}
-function nextRound(){socket.emit("nextRound",{room})}
+function startRound(){if(!connected)return alert("Server ยังไม่พร้อม"); socket.emit("startRound",{room,hostToken})}
+function nextRound(){if(!connected)return alert("Server ยังไม่พร้อม"); socket.emit("nextRound",{room,hostToken})}
 
 function renderHost(d){
   $("hostTitle").textContent=d.title;
